@@ -42,7 +42,7 @@ class AtlassianRestAPI(object):
         url_link = '/'.join(s.strip('/') for s in [url, path])
         return url_link
 
-    def request(self, method='GET', path='/', data=None, flags=None, params=None, headers=None, files=None):
+    def request(self, method='GET', path='/', data=None, flags=None, params=None, headers=None, files=None, paged=False):
         self.log_curl_debug(method=method, path=path, headers=headers, data=data)
         url = self.url_joiner(self.url, path)
         if params or flags:
@@ -54,24 +54,33 @@ class AtlassianRestAPI(object):
         if files is None:
             data = json.dumps(data)
 
-        headers = headers or self.default_headers
-        response = self._session.request(
-            method=method,
-            url=url,
-            headers=headers,
-            data=data,
-            auth=(self.username, self.password),
-            timeout=self.timeout,
-            verify=self.verify_ssl,
-            files=files
-        )
-        try:
-            if response.text:
-                response_content = response.json()
-            else:
+        response_content = None
+        while(True):
+            headers = headers or self.default_headers
+            response = self._session.request(
+                method=method,
+                url=url,
+                headers=headers,
+                data=data,
+                auth=(self.username, self.password),
+                timeout=self.timeout,
+                verify=self.verify_ssl,
+                files=files
+            )
+            try:
+                if response.text:
+                    response_content = merge_response(response_content,response.json())
+                else:
+                    response_content = response.content
+            except ValueError:
                 response_content = response.content
-        except ValueError:
-            response_content = response.content
+
+            if not paged or not response_content.isLastPage:
+                break
+
+            #TODO: update limit values
+        
+
         if response.status_code == 200:
             log.debug('Received: {0}\n {1}'.format(response.status_code, response_content))
         elif response.status_code == 204:
@@ -89,6 +98,10 @@ class AtlassianRestAPI(object):
                 log.error('Response is: {content}'.format(content=err.response.content))
         return response
 
+    def merge_response(json1,json2):
+        # TODO: implement function
+        pass
+
     def get(self, path, data=None, flags=None, params=None, headers=None, not_json_response=None):
         """
         Get request based on the python-requests module. You can override headers, and also, get not json response
@@ -100,7 +113,7 @@ class AtlassianRestAPI(object):
         :param not_json_response: OPTIONAL: For get content from raw requests packet
         :return:
         """
-        answer = self.request('GET', path=path, flags=flags, params=params, data=data, headers=headers)
+        answer = self.request('GET', path=path, flags=flags, params=params, data=data, headers=headers, paged=True)
         if not_json_response:
             return answer.content
         else:
